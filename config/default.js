@@ -15,6 +15,23 @@ module.exports = {
     "dbname":"dvpdb",
     "password":"DuoS123",
     "user":"duo"
+  },
+
+
+  "Security":
+  {
+    "ip" : "45.55.142.207",
+    "port": 6389,
+    "user": "duo",
+    "password": "DuoS123"
+  },
+
+  "Host":{
+
+  },
+
+  "Url":{
+    "login":"http://userservice.app.veery.cloud/auth/login"
   }
 
 };

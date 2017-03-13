@@ -9,7 +9,23 @@ var DbConn = require('dvp-dbmodels');
 var config = require('config');
 const commandLineArgs = require('command-line-args');
 var async =require("async");
+var cli = require('cli');
+var path = require("path");
+var logger = require('dvp-common/LogHandler/CommonLogHandler.js').logger;
+var auditTrailsHandler = require('dvp-common/AuditTrail/AuditTrailsHandler.js');
+var mkdirp = require('mkdirp');
+var jwt = require('jsonwebtoken');
+var redis = require('redis');
+var login = config.Url.login;
 
+var options = cli.parse({
+    object: [ 'a', 'The object category', 'string', "test" ],
+    path: [ 'o', 'Archive location', 'string', "/" ],
+    token: [ 's', 'The security token', 'string', "wrong token" ],
+    date: [ 'd', 'time', 'time', new Date()],
+    company: [ 'c', 'company id', 'int', 0 ],
+    tenant: [ 't', 'tenant id', 'int', 0 ]
+});
 
 var util = require('util');
 var mongoip=config.Mongo.ip;
@@ -68,6 +84,29 @@ mongoose.connection.on('reconnected', function () {
 
 
 
+var redisip = config.Security.ip;
+var redisport = config.Security.port;
+var redisuser = config.Security.user;
+var redispass = config.Security.password;
+
+
+//[redis:]//[user][:password@][host][:port][/db-number][?db=db-number[&password=bar[&option=value]]]
+//redis://user:secret@localhost:6379
+
+
+var redisClient = redis.createClient(redisport, redisip);
+
+redisClient.on('error', function (err) {
+    console.log('Error ' + err);
+});
+
+redisClient.auth(redispass, function (error) {
+
+    if(error != null) {
+        console.log("Error Redis : " + error);
+    }
+});
+
 process.on('SIGINT', function() {
     mongoose.connection.close(function () {
         console.log('Mongoose default connection disconnected through app termination');
@@ -82,45 +121,130 @@ Grid.mongo = mongoose.mongo;
 
 mongoose.connect(connectionstring,{server:{auto_reconnect:true}});
 
-
-
-
 mongoose.connection.once('open', function () {
 
     console.log('open');
+    var payload = jwt.decode(options.token);
 
 
-    DbConn.FileUpload.findAll({where: [{'createdAt':{$lt: new Date('2016/09/04')}},{ObjCategory: 'CONVERSATION'},{CompanyId:103},{TenantId:1}]}).then(function (resFile) {
+    if(payload && payload.iss && payload.jti) {
+        var issuer = payload.iss;
+        var jti = payload.jti;
 
-        if (resFile) {
 
-            var gfs = Grid(mongoose.connection.db);
+        redisClient.get("token:iss:" + issuer + ":" + jti, function (err, key) {
 
-            async.each(resFile,
+            if (err) {
+                return;
+            }
+            if (!key) {
+                return;
+            }
 
-                function(item, callback){
+            jwt.verify(options.token, key, function(err, decoded) {
 
-                    gfs.remove({
-                        filename : item.UniqueId
-                    }, function (err) {
+                if(decoded) {
+                    DbConn.FileUpload.findAll({where: [{'createdAt': {$lt: options.date}}, {ObjCategory: options.object}, {CompanyId: options.company}, {TenantId: options.tenant}]}).then(function (resFile) {
 
-                        callback();
+                        if (resFile) {
 
-                        if (err) {
+                            var gfs = Grid(mongoose.connection.db);
 
-                            console.log("error");
-                        }else {
-                            console.log('success');
+                            async.eachLimit(resFile, 20,
+
+                                function (item, callback) {
+
+                                    /////////////////////////////////////////////////////////////////////////////////////
+                                    //console.log(item);
+                                    try {
+                                        logger.info("Item - ", item.toJSON());
+                                    } catch (ex) {
+
+                                        console.log(ex);
+                                    }
+
+                                    var readstream = gfs.createReadStream({
+                                        filename: item.UniqueId
+                                    });
+
+
+                                    var _path = path.join(options.path, item.createdAt.toISOString().substring(0, 10), item.UniqueId + path.extname(item.DisplayName));
+
+                                    mkdirp(path.dirname(_path), function (err) {
+                                        if (err) {
+
+                                            callback();
+
+                                        } else {
+
+
+                                            var wstream = fs.createWriteStream(_path);
+                                            readstream.pipe(wstream);
+
+                                            readstream.on('error', function (err) {
+                                                console.log('An error occurred!', err);
+                                                callback();
+                                            });
+
+                                            readstream.on('end', function () {
+                                                gfs.remove({
+                                                    filename: item.UniqueId
+                                                }, function (err) {
+
+                                                    if (err) {
+                                                        console.log("error");
+                                                        callback();
+                                                    } else {
+                                                        console.log('success');
+
+                                                        item.destroy().then(function () {
+
+
+                                                            var iss = issuer;
+
+                                                            var auditData = {
+                                                                KeyProperty: "FILE",
+                                                                OldValue: item.UniqueId,
+                                                                NewValue: "",
+                                                                Description: "File delete",
+                                                                Author: iss,
+                                                                User: iss,
+                                                                ObjectType: options.object,
+                                                                Action: "DELETE",
+                                                                Application: "File archive"
+                                                            };
+
+                                                            auditTrailsHandler.CreateAuditTrails(options.tenant, options.company, iss, auditData, function (err, obj) {
+                                                                if (err) {
+                                                                    console.log('addAuditTrail -  Fail To Save Audit trail-[%s]', err);
+                                                                }
+
+                                                                callback();
+                                                            });
+
+                                                        });
+                                                    }
+                                                });
+                                            });
+                                        }
+                                    });
+                                },
+
+                                function (err) {
+
+                                    console.log("completed ............");
+                                    process.exit(0);
+                                }
+                            );
                         }
                     });
-                },
-
-                function(err){
-
-                    console.log("done ............");
+                }else{
+                    console.log("Verification failed");
                 }
-            );
-        }
-    });
 
+            });
+        });
+    }else{
+        return;
+    }
 });
