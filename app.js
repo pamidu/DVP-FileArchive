@@ -22,7 +22,7 @@ var options = cli.parse({
     object: [ 'a', 'The object category', 'string', "test" ],
     path: [ 'o', 'Archive location', 'string', "/" ],
     token: [ 's', 'The security token', 'string', "wrong token" ],
-    date: [ 'd', 'time', 'time', new Date()],
+    date: [ 'd', 'Date of delete', 'string', new Date().toISOString()],
     company: [ 'c', 'company id', 'int', 0 ],
     tenant: [ 't', 'tenant id', 'int', 0 ]
 });
@@ -168,7 +168,7 @@ mongoose.connection.once('open', function () {
                                     });
 
 
-                                    var _path = path.join(options.path, item.createdAt.toISOString().substring(0, 10), item.UniqueId + path.extname(item.DisplayName));
+                                    var _path = path.join(options.path, item.createdAt.toISOString().substring(0, 10), item.UniqueId + path.extname(item.Filename));
 
                                     mkdirp(path.dirname(_path), function (err) {
                                         if (err) {
