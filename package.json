@@ -8,7 +8,7 @@
     "async": "^2.1.5",
     "config": "^1.25.1",
     "cli": "^1.0.1",
-    "dvp-common": "^0.6.7",
+    "dvp-common": "^0.8.4",
     "gridfs-stream": "^1.1.1",
     "dvp-dbmodels": "^0.9.1",
     "mkdirp": "^0.5.1",
