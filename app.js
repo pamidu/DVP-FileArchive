@@ -182,7 +182,7 @@ mongoose.connection.once('open', function () {
                                             readstream.pipe(wstream);
 
                                             readstream.on('error', function (err) {
-                                                console.log('An error occurred!', err);
+                                                //console.log('An error occurred!', err);
                                                 callback();
                                             });
 
